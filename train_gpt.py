@@ -700,13 +700,15 @@ class CausalSelfAttention(nn.Module):
         q = apply_rotary_emb(q, cos, sin, rope_dims=self.rope_dims)
         k = apply_rotary_emb(k, cos, sin, rope_dims=self.rope_dims)
         q = q * self.q_gain.to(dtype=q.dtype)[None, :, None, None]
+        if self.num_kv_heads != self.num_heads:
+            k = k.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
+            v = v.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
         y = F.scaled_dot_product_attention(
             q,
             k,
             v,
             attn_mask=None,
             is_causal=True,
-            enable_gqa=(self.num_kv_heads != self.num_heads),
         )
         # XSA: subtract self-value projection so each head attends orthogonally to its own value.
         if self.xsa:
