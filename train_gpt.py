@@ -713,11 +713,9 @@ class CausalSelfAttention(nn.Module):
         # XSA: subtract self-value projection so each head attends orthogonally to its own value.
         if self.xsa:
             B, H, T, D = y.shape
-            Hkv, grp = self.num_kv_heads, H // self.num_kv_heads
-            y_g = y.reshape(B, Hkv, grp, T, D)
-            v_n = F.normalize(v, dim=-1).unsqueeze(2)           # [B, Hkv, 1, T, D]
-            y_g = y_g - (y_g * v_n).sum(-1, keepdim=True) * v_n
-            y = y_g.reshape(B, H, T, D)
+            # v was already expanded via repeat_interleave to H heads
+            v_n = F.normalize(v, dim=-1)                        # [B, H, T, D]
+            y = y - (y * v_n).sum(-1, keepdim=True) * v_n
         y = y.transpose(1, 2).contiguous().reshape(bsz, seqlen, dim)
         out = self.proj(y)
         if lora is not None:
