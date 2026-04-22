@@ -176,10 +176,7 @@ class Muon(torch.optim.Optimizer):
         return loss
 
 
-# -----------------------------
-# TOKENIZER-AGNOSTIC EVALUATION SETUP 
-# -----------------------------
-#
+# TOKENIZER-AGNOSTIC EVALUATION SETUP
 # It's common for small models have a large fraction of their parameters be embeddings, since the 2 * d_model * d_vocab vectors can be gigantic.
 # Instead of locking the tokenizer, we let you bring your own and calculate our validation metrics on the average compression of the validation set.
 # We calculate BPB (bits-per-byte) instead of validation loss, so we need methods to count the number of bits per token in the tokenizer.
@@ -959,66 +956,72 @@ def eval_val_sliding(
     stride: int, 
     batch_seqs: int = 32,
 ) -> tuple[float, float]:
-    """Sliding window evaluation: each token scored with maximum context.
-    Windows of train_seq_len advance by `stride`. Only the last `stride` tokens
-    per window contribute to the score (first window scores all). Windows are
-    batched and distributed across ranks.
-    """
-    seq_len = args.train_seq_len
-    total_tokens = val_tokens.numel() - 1
-    # Build windows; include final partial window if it has at least 1 token
-    window_starts = [ws for ws in range(0, total_tokens, stride)
-                     if min(ws + seq_len, total_tokens) - ws >= 1]
-    total_windows = len(window_starts)
-    #Distribute across ranks
-    my_s = (total_windows * rank) // world_size
-    my_e = (total_windows * (rank + 1)) // world_size
-    my_windows = window_starts[my_s: my_e]
+    seq_len, total_tokens = args.train_seq_len, val_tokens.numel() - 1
+    ttt_enabled = bool(int(os.environ.get("TTT_ENABLED", "1")))
+    ttt_chunk_tokens = int(os.environ.get("TTT_CHUNK_TOKENS", 32768))
+    ttt_epochs = int(os.environ.get("TTT_EPOCHS", 3))
+    ttt_lr = float(os.environ.get("TTT_LR", 0.005))
+    ttt_momentum = float(os.environ.get("TTT_MOMENTUM", 0.9))
+    ttt_batch_seqs = int(os.environ.get("TTT_BATCH_SEQS", batch_seqs))
+    ttt_grad_clip = float(os.environ.get("TTT_GRAD_CLIP", 1.0))
+    n_chunks = max((total_tokens + ttt_chunk_tokens - 1) // ttt_chunk_tokens, 1)
     loss_sum = torch.zeros((), device=device, dtype=torch.float64)
     token_count = torch.zeros((), device=device, dtype=torch.float64)
     byte_count = torch.zeros((), device=device, dtype=torch.float64)
-    base_model.eval()
-    with torch.inference_mode():
-        for bi in range(0, len(my_windows), batch_seqs):
-            batch_ws = my_windows[bi:bi + batch_seqs]
-            bsz = len(batch_ws)
-            x_batch = torch.zeros(bsz, seq_len, dtype=torch.int64, device=device)
-            y_batch = torch.zeros(bsz, seq_len, dtype=torch.int64, device=device)
-            wlens: list[int] = []
-            for i, ws in enumerate(batch_ws):
-                end = min(ws + seq_len, total_tokens)
-                wlen = end - ws
-                wlens.append(wlen)
-                chunk = val_tokens[ws:end + 1].to(dtype=torch.int64, device=device)
-                x_batch[i, :wlen] = chunk[:-1]
-                y_batch[i, :wlen] = chunk[1:]
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                logits = base_model.forward_logits(x_batch)
-            nll = F.cross_entropy(
-                logits.reshape(-1, logits.size(-1)).float(),
-                y_batch.reshape(-1),
-                reduction="none",
-            ).reshape(bsz, seq_len)
-            for i, ws in enumerate(batch_ws):
-                wlen = wlens[i]
-                s = 0 if ws == 0 else max(wlen - stride, 0)
-                scored_nll = nll[i, s:wlen].to(torch.float64)
-                loss_sum += scored_nll.sum()
-                token_count += float(wlen - s)
-                tgt = y_batch[i, s:wlen]
-                prev = x_batch[i, s:wlen]
-                tb = base_bytes_lut[tgt].to(torch.float64)
-                tb += (has_leading_space_lut[tgt] & ~is_boundary_token_lut[prev]).to(torch.float64)
-                byte_count += tb.sum()
-            # Progress (rank 0 only)
-            if rank == 0 and (bi // batch_seqs) % 50 == 0:
-                done = min(bi + batch_seqs, len(my_windows))
-                pct = done / len(my_windows) * 100
-                running_bpb = 0.0
-                if token_count.item() > 0:
-                    rl = (loss_sum / token_count).item()
-                    running_bpb = rl / math.log(2.0) * (token_count.item() / byte_count.item())
-                print(f"  sliding_eval [{pct:5.1f}%] {done}/{len(my_windows)} windows running_bpb={running_bpb:.6f}", flush=True)
+    opt = torch.optim.SGD(base_model.parameters(), lr=ttt_lr, momentum=ttt_momentum) if ttt_enabled else None
+    for chunk_idx in range(n_chunks):
+        cs, ce = chunk_idx * ttt_chunk_tokens, min((chunk_idx + 1) * ttt_chunk_tokens, total_tokens)
+        starts = list(range(cs, ce, stride))
+        my_s = (len(starts) * rank) // world_size
+        my_e = (len(starts) * (rank + 1)) // world_size
+        base_model.eval()
+        with torch.no_grad():
+            for bi in range(my_s, my_e, batch_seqs):
+                batch_ws = starts[bi:bi + batch_seqs]
+                x_batch = torch.zeros(len(batch_ws), seq_len, dtype=torch.int64, device=device)
+                y_batch = torch.zeros_like(x_batch)
+                wlens = []
+                for i, ws in enumerate(batch_ws):
+                    end = min(ws + seq_len, ce)
+                    wlens.append(end - ws)
+                    chunk = val_tokens[ws:end + 1].to(dtype=torch.int64, device=device)
+                    x_batch[i, : wlens[-1]], y_batch[i, : wlens[-1]] = chunk[:-1], chunk[1:]
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                    nll = F.cross_entropy(base_model.forward_logits(x_batch).reshape(-1, args.vocab_size).float(), y_batch.reshape(-1), reduction="none").reshape(len(batch_ws), seq_len)
+                for i, ws in enumerate(batch_ws):
+                    s, wlen = (0 if ws == cs else max(wlens[i] - stride, 0)), wlens[i]
+                    loss_sum += nll[i, s:wlen].to(torch.float64).sum()
+                    token_count += float(wlen - s)
+                    tgt, prev = y_batch[i, s:wlen], x_batch[i, s:wlen]
+                    byte_count += (base_bytes_lut[tgt].to(torch.float64) + (has_leading_space_lut[tgt] & ~is_boundary_token_lut[prev]).to(torch.float64)).sum()
+        if not ttt_enabled or opt is None or ce - cs <= seq_len:
+            continue
+        lr = ttt_lr * 0.5 * (1.0 + math.cos(math.pi * chunk_idx / max(n_chunks - 1, 1)))
+        for group in opt.param_groups:
+            group["lr"] = lr
+        usable = ((ce - cs) // seq_len) * seq_len
+        seq_start = ((usable // seq_len) * rank) // world_size
+        seq_end = ((usable // seq_len) * (rank + 1)) // world_size
+        if seq_end <= seq_start:
+            continue
+        base_model.train()
+        chunk = val_tokens[cs : cs + usable + 1].to(dtype=torch.int64, device=device)
+        for _ in range(ttt_epochs):
+            for bs in range(seq_start, seq_end, ttt_batch_seqs):
+                be = min(bs + ttt_batch_seqs, seq_end)
+                x = chunk[bs * seq_len : be * seq_len].reshape(-1, seq_len)
+                y = chunk[bs * seq_len + 1 : be * seq_len + 1].reshape(-1, seq_len)
+                opt.zero_grad(set_to_none=True)
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=True):
+                    loss = base_model(x, y)
+                loss.backward()
+                if dist.is_available() and dist.is_initialized():
+                    for p in base_model.parameters():
+                        if p.grad is not None:
+                            dist.all_reduce(p.grad, op=dist.ReduceOp.SUM)
+                            p.grad.div_(world_size)
+                torch.nn.utils.clip_grad_norm_(base_model.parameters(), ttt_grad_clip)
+                opt.step()
     if dist.is_available() and dist.is_initialized():
         dist.all_reduce(loss_sum, op=dist.ReduceOp.SUM)
         dist.all_reduce(token_count, op=dist.ReduceOp.SUM)
