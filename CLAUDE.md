@@ -42,16 +42,27 @@ torchrun --standalone --nproc_per_node=8 train_gpt.py
 | Variable | Default | Notes |
 |---|---|---|
 | `ITERATIONS` | 20000 | Training steps |
-| `TRAIN_BATCH_TOKENS` | 524288 | Global batch size |
+| `TRAIN_BATCH_TOKENS` | 524288 | Global batch size in tokens |
+| `TRAIN_SEQ_LEN` | 1024 | Sequence length during training |
 | `MAX_WALLCLOCK_SECONDS` | 600 | 10-minute cap for leaderboard |
+| `WARMUP_STEPS` | 20 | LR warmup steps |
+| `WARMDOWN_ITERS` | 1200 | Cosine warmdown steps at end |
 | `NUM_LAYERS` | 9 | Transformer blocks |
 | `MODEL_DIM` | 512 | Hidden dim |
 | `NUM_HEADS` / `NUM_KV_HEADS` | 8 / 4 | GQA config |
 | `MLP_MULT` | 2 | MLP expansion ratio |
 | `TIE_EMBEDDINGS` | 1 | Share embed/lm_head weights |
 | `VOCAB_SIZE` | 1024 | Must match tokenizer |
+| `ROPE_BASE` | 10000.0 | RoPE frequency base |
+| `LOGIT_SOFTCAP` | 30.0 | tanh softcap on output logits |
+| `QAT` | 1 | Enable quantization-aware training |
+| `EVAL_STRIDE` | 64 | Sliding window stride for validation |
+| `EVAL_BATCH_SEQS` | 32 | Sequences per validation batch |
 | `MATRIX_LR` | 0.04 | Muon optimizer LR |
-| `EMBED_LR` | 0.6 | Adam LR for embeddings |
+| `EMBED_LR` | 0.6 | Adam LR for tied embeddings |
+| `HEAD_LR` | 0.008 | Adam LR for untied lm_head |
+| `SCALAR_LR` | 0.04 | Adam LR for scalar/vector params |
+| `MUON_MOMENTUM` | 0.95 | Muon momentum (after warmup) |
 | `SEED` | 1337 | Leaderboard requires 3+ seeds |
 
 ## Code Architecture
@@ -93,7 +104,9 @@ Post-training steps (end of `train_gpt.py`):
 3. Control tensors (`attn_scale`, `mlp_scale`, `resid_mix`, `q_gain`, `skip_weights`) kept as fp32
 4. Zlib compress at level 9
 5. Round-trip validation ensures decompression works
-6. Output: `final_model.int8.ptz` — must be ≤16MB including the training script
+6. Output: `final_model.int8.ptz` — must be ≤16MB **including** the training script bytes
+
+An uncompressed `final_model.pt` is also saved for debugging but does not count toward the size limit. Some record submissions swap zlib for lzma or zstd to squeeze extra bytes.
 
 ### Data Pipeline
 
@@ -109,7 +122,30 @@ Post-training steps (end of `train_gpt.py`):
 4. Final score = mean BPB across seeds at the 10-minute mark
 5. Open a PR — the leaderboard in README.md is updated on merge
 
-`submission.json` format follows existing entries in `records/`.
+`submission.json` required fields (see existing entries for examples):
+```json
+{
+  "author": "...",
+  "github_id": "...",
+  "name": "...",
+  "blurb": "...",
+  "date": "YYYY-MM-DD",
+  "track": "10min_16mb",
+  "val_loss": 1.882,
+  "val_bpb": 1.115,
+  "val_loss_std": 0.0006,
+  "val_bpb_std": 0.00035,
+  "seeds": [314, 42, 999],
+  "seed_results": {
+    "314": { "val_loss": ..., "val_bpb": ..., "artifact_bytes": ..., "steps": ..., "step_avg_ms": ... },
+    ...
+  },
+  "hardware": "8xH100 80GB SXM",
+  "pytorch_version": "...",
+  "cuda_version": "..."
+}
+```
+Records that beat a prior submission also include `comparison_baseline_pr`, `delta_vs_prN_bpb`, `t_statistic`, and `welch_df`.
 
 ## Records Structure
 
