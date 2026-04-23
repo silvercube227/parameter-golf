@@ -9,4 +9,4 @@ typing-extensions==4.15.0
 datasets
 tiktoken
 sentencepiece
-flash_attn_interface
+flash_attn_3
