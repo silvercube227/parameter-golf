@@ -1,6 +1,5 @@
-"""Starter training script, not SOTA. Hard stop: `train_gpt.py` and `train_gpt_mlx.py` must stay <=1500 lines."""
+"""Starter training script; hard stop: `train_gpt.py` and `train_gpt_mlx.py` must stay <=1500 lines."""
 from __future__ import annotations
-
 import copy
 import glob
 import io
@@ -706,6 +705,8 @@ class CausalSelfAttention(nn.Module):
         # XSA: subtract self-value projection so each head attends orthogonally to its own value.
         if self.xsa:
             B, H, T, D = y.shape
+            if v.shape[1] != H:
+                v = v.repeat_interleave(H // v.shape[1], dim=1)
             v_n = F.normalize(v, dim=-1)                        # [B, H, T, D]
             y = y - (y * v_n).sum(-1, keepdim=True) * v_n
         y = y.transpose(1, 2).contiguous().reshape(bsz, seqlen, dim)
