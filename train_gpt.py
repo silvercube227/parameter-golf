@@ -1,7 +1,4 @@
-"""
-The `train_gpt.py` and `train_gpt_mlx.py` scripts are intended as good launching-off points for new participants, not SOTA configs. We'll accept PRs that tune, improve, or simplify these scripts without significantly increasing complexity, but competitive submissions should stay in the `/records` folder.
-Hard stop: To keep readable for newcomers, let's make sure `train_gpt.py` and `train_gpt_mlx.py` never are longer than 1500 lines.
-"""
+"""Starter training script, not SOTA. Hard stop: `train_gpt.py` and `train_gpt_mlx.py` must stay <=1500 lines."""
 from __future__ import annotations
 
 import copy
@@ -17,7 +14,6 @@ import time
 import uuid
 import zlib
 from pathlib import Path
-
 import numpy as np
 import sentencepiece as spm
 import torch
@@ -29,7 +25,6 @@ try: import brotli
 except Exception: brotli = None
 try: from flash_attn_interface import flash_attn_func as flash_attn3_func
 except Exception: flash_attn3_func = None
-
 class Hyperparameters:
     # Data paths are shard globs produced by the existing preprocessing pipeline.
     data_path = os.environ.get("DATA_PATH", "./data/datasets/fineweb10B_sp8192")
@@ -1496,4 +1491,9 @@ def main() -> None:
     if distributed:
         dist.destroy_process_group()
 if __name__ == "__main__":
-    main()
+    try: main()
+    except Exception:
+        print(f"[fatal rank={os.environ.get('RANK','0')} local_rank={os.environ.get('LOCAL_RANK','0')}]", file=sys.stderr, flush=True)
+        __import__("traceback").print_exc()
+        if dist.is_available() and dist.is_initialized(): dist.destroy_process_group()
+        raise
