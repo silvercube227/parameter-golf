@@ -703,11 +703,14 @@ class CausalSelfAttention(nn.Module):
         q = q * self.q_gain.to(dtype=q.dtype)[None, :, None, None]
         use_fa3 = flash_attn3_func is not None and x.is_cuda and torch.cuda.get_device_capability(x.device)[0] >= 9 and bool(int(os.environ.get("USE_FLASHATTN3", "1")))
         if use_fa3: y = flash_attn3_func(q.transpose(1, 2).contiguous(), k.transpose(1, 2).contiguous(), v.transpose(1, 2).contiguous(), causal=True).transpose(1, 2)
-        else: y = F.scaled_dot_product_attention(q, k, v, attn_mask=None, is_causal=True, enable_gqa=(self.num_kv_heads != self.num_heads))
+        else:
+            if self.num_kv_heads != self.num_heads:
+                k = k.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
+                v = v.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
+            y = F.scaled_dot_product_attention(q, k, v, attn_mask=None, is_causal=True)
         # XSA: subtract self-value projection so each head attends orthogonally to its own value.
         if self.xsa:
             B, H, T, D = y.shape
-            if self.num_kv_heads != self.num_heads: v = v.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
             v_n = F.normalize(v, dim=-1)                        # [B, H, T, D]
             y = y - (y * v_n).sum(-1, keepdim=True) * v_n
         y = y.transpose(1, 2).contiguous().reshape(bsz, seqlen, dim)
@@ -1223,7 +1226,7 @@ def main() -> None:
     effective_depth = args.num_layers * args.num_loops
     log0(f"model_params:{n_params} (unique_layers:{args.num_layers} loops:{args.num_loops} effective_depth:{effective_depth} lora_rank:{args.lora_rank} lora_params:{n_lora})")
     log0(f"world_size:{world_size} grad_accum_steps:{grad_accum_steps}")
-    log0(f"sdp_backends:cudnn=False flash=True mem_efficient=False math=False fa3:{use_fa3}")
+    log0(f"sdp_backends:cudnn=False flash=True mem_efficient=False math=False fa3:{use_fa3} fa3_imported:{flash_attn3_func is not None}")
     log0(f"attention_mode:gqa num_heads:{args.num_heads} num_kv_heads:{args.num_kv_heads}")
     log0(
         f"tie_embeddings:{args.tie_embeddings} embed_lr:{token_lr} "
