@@ -340,7 +340,10 @@ def _quantize_rowwise_rtn(t32: Tensor, qmax: int, sigmas: tuple[float, ...]) -> 
         scale = (clip_abs / qmax).clamp_min(1.0 / qmax)
         q = torch.clamp(torch.round(t32 / scale[:, None]), -qmax, qmax).to(torch.int8)
         err = (q.float() * scale[:, None] - t32).square().mean(dim=1)
-        m = err < best_err; best_err = torch.where(m, err, best_err); best_scale = torch.where(m, scale, best_scale); best_q[m] = q[m]
+        m = err < best_err
+        best_err = torch.where(m, err, best_err)
+        best_scale = torch.where(m, scale, best_scale)
+        best_q = torch.where(m[:, None], q, best_q)
     return best_q, best_scale
 def _quantize_rowwise_gptq(t32: Tensor, hessian: Tensor, qmax: int) -> tuple[Tensor, Tensor]:
     rows, cols = t32.shape
@@ -414,7 +417,7 @@ def quantize_embedding_gptq(t: Tensor, token_freqs: Tensor | None, bits: int = 4
         better = err < best_err
         best_err = torch.where(better, err, best_err)
         best_scale = torch.where(better, scale, best_scale)
-        best_q[better] = q[better]
+        best_q = torch.where(better[:, None], q, best_q)
     packed = pack_int4_signed(best_q)
     meta = {"scheme": "embed_gptq_int4", "orig_shape": list(t.shape), "bits": bits, "zero_point": 8}
     return packed, best_scale.to(dtype=INT8_PER_ROW_SCALE_DTYPE).contiguous(), meta
