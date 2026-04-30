@@ -833,6 +833,8 @@ class CausalSelfAttention(nn.Module):
         for l in (lora, extra_lora):
             if l is not None:
                 out = self._apply_lora(out, y, l.proj_A, l.proj_B, float(getattr(l, "scale", 1.0)))
+        if not sparse_gate_enabled and not gated_attn_enabled:
+            out = out + (self.head_gate.float().sum() + self.head_bias.float().sum() + self.attn_gate.float().sum()).to(out.dtype) * 0.0
         return out
 
 
@@ -1122,7 +1124,7 @@ def eval_val_sliding(
             chunk = raw_doc[ws:end + 1].to(dtype=torch.int64, device=device)
             x = chunk[:-1].unsqueeze(0)
             y = chunk[1:].unsqueeze(0)
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 nll = F.cross_entropy(base_model.forward_logits(x, extra_loras=extra_loras).reshape(-1, args.vocab_size).float(), y.reshape(-1), reduction="none").reshape(1, wlen)
             s = 0 if ws == 0 else max(wlen - stride, 0)
             local_loss += nll[0, s:wlen].to(torch.float64).sum()
