@@ -33,15 +33,15 @@ class Hyperparameters:
     seed = int(os.environ.get("SEED", 1337))
 
     val_batch_size = int(os.environ.get("VAL_BATCH_SIZE", 524_288))
-    val_loss_every = int(os.environ.get("VAL_LOSS_EVERY", 1000))
-    train_log_every = int(os.environ.get("TRAIN_LOG_EVERY", 200))
+    val_loss_every = int(os.environ.get("VAL_LOSS_EVERY", 4000))
+    train_log_every = int(os.environ.get("TRAIN_LOG_EVERY", 500))
 
     iterations = int(os.environ.get("ITERATIONS", 20000))
     warmdown_iters = int(os.environ.get("WARMDOWN_ITERS", 3500))
-    warmdown_frac = float(os.environ.get("WARMDOWN_FRAC", 0.85))
+    warmdown_frac = float(os.environ.get("WARMDOWN_FRAC", 0.72))
     warmup_steps = int(os.environ.get("WARMUP_STEPS", 20))
-    train_batch_tokens = int(os.environ.get("TRAIN_BATCH_TOKENS", 524_288))
-    train_seq_len = int(os.environ.get("TRAIN_SEQ_LEN", 1024))
+    train_batch_tokens = int(os.environ.get("TRAIN_BATCH_TOKENS", 786_432))
+    train_seq_len = int(os.environ.get("TRAIN_SEQ_LEN", 2048))
     max_wallclock_seconds = float(os.environ.get("MAX_WALLCLOCK_SECONDS", 600.0))
     qk_gain_init = float(os.environ.get("QK_GAIN_INIT", 5.25))
 
@@ -60,11 +60,11 @@ class Hyperparameters:
     rope_base = float(os.environ.get("ROPE_BASE", 10000.0))
     rope_dims = int(os.environ.get("ROPE_DIMS", 16))
     logit_softcap = float(os.environ.get("LOGIT_SOFTCAP", 30.0))
-    ema_decay = float(os.environ.get("EMA_DECAY", 0.997))
-    bigram_vocab_size = int(os.environ.get("BIGRAM_VOCAB_SIZE", 3072))
+    ema_decay = float(os.environ.get("EMA_DECAY", 0.9965))
+    bigram_vocab_size = int(os.environ.get("BIGRAM_VOCAB_SIZE", 0))
     bigram_embed_dim = int(os.environ.get("BIGRAM_EMBED_DIM", 112))
     xsa = bool(int(os.environ.get("XSA", 1)))
-    smear_gate = bool(int(os.environ.get("SMEAR_GATE", 1)))
+    smear_gate = bool(int(os.environ.get("SMEAR_GATE", 0)))
     ln_scale = bool(int(os.environ.get("LN_SCALE", 1)))
     recur_start = int(os.environ.get("RECUR_START", 3))
     recur_end = int(os.environ.get("RECUR_END", 6))
@@ -74,14 +74,14 @@ class Hyperparameters:
 
     embed_lr = float(os.environ.get("EMBED_LR", 0.6))
     head_lr = float(os.environ.get("HEAD_LR", 0.008))
-    tied_embed_lr = float(os.environ.get("TIED_EMBED_LR", 0.05))
+    tied_embed_lr = float(os.environ.get("TIED_EMBED_LR", 0.03))
     tied_embed_init_std = float(os.environ.get("TIED_EMBED_INIT_STD", 0.005))
-    matrix_lr = float(os.environ.get("MATRIX_LR", 0.026))
-    scalar_lr = float(os.environ.get("SCALAR_LR", 0.04))
-    muon_momentum = float(os.environ.get("MUON_MOMENTUM", 0.95))
+    matrix_lr = float(os.environ.get("MATRIX_LR", 0.022))
+    scalar_lr = float(os.environ.get("SCALAR_LR", 0.02))
+    muon_momentum = float(os.environ.get("MUON_MOMENTUM", 0.99))
     muon_backend_steps = int(os.environ.get("MUON_BACKEND_STEPS", 5))
-    muon_momentum_warmup_start = float(os.environ.get("MUON_MOMENTUM_WARMUP_START", 0.85))
-    muon_momentum_warmup_steps = int(os.environ.get("MUON_MOMENTUM_WARMUP_STEPS", 500))
+    muon_momentum_warmup_start = float(os.environ.get("MUON_MOMENTUM_WARMUP_START", 0.92))
+    muon_momentum_warmup_steps = int(os.environ.get("MUON_MOMENTUM_WARMUP_STEPS", 1500))
     muon_weight_decay = float(os.environ.get("MUON_WEIGHT_DECAY", 0.095))
     adam_wd = float(os.environ.get("ADAM_WD", 0.02))
     embed_wd = float(os.environ.get("EMBED_WD", 0.085))
@@ -95,13 +95,13 @@ class Hyperparameters:
     ttt_lora_rank = int(os.environ.get("TTT_LORA_RANK", 80))
     ttt_lora_alpha = float(os.environ.get("TTT_LORA_ALPHA", 144.0))
     ttt_warm_start_a = bool(int(os.environ.get("TTT_WARM_START_A", 1)))
-    parallel_from_layer = int(os.environ.get("PARALLEL_FROM_LAYER", 8))
+    parallel_from_layer = int(os.environ.get("PARALLEL_FROM_LAYER", 7))
     head_gate_dim = int(os.environ.get("HEAD_GATE_DIM", 12))
     lqer_rank = int(os.environ.get("LQER_RANK", 4))
     lqer_top_k = int(os.environ.get("LQER_TOP_K", 3))
     sparse_attn_gate_scale = float(os.environ.get("SPARSE_ATTN_GATE_SCALE", 1.0))
-    sparse_attn_gate_enabled = bool(int(os.environ.get("SPARSE_ATTN_GATE_ENABLED", 1)))
-    gated_attn_enabled = bool(int(os.environ.get("GATED_ATTN_ENABLED", 1)))
+    sparse_attn_gate_enabled = bool(int(os.environ.get("SPARSE_ATTN_GATE_ENABLED", 0)))
+    gated_attn_enabled = bool(int(os.environ.get("GATED_ATTN_ENABLED", 0)))
     phased_ttt_enabled = bool(int(os.environ.get("PHASED_TTT_ENABLED", 1)))
     l1_sort_enabled = bool(int(os.environ.get("L1_SORT_ENABLED", 1)))
 
@@ -327,7 +327,7 @@ def unpack_int6_signed(packed: Tensor, orig_shape: tuple[int, ...]) -> Tensor:
     p = packed.view(orig_shape[0], -1, 3)
     q = torch.stack((p[..., 0] & 0x3F, ((p[..., 0] >> 6) | ((p[..., 1] & 0x0F) << 2)) & 0x3F, ((p[..., 1] >> 4) | ((p[..., 2] & 0x03) << 4)) & 0x3F, (p[..., 2] >> 2) & 0x3F), dim=-1).reshape(orig_shape[0], -1)
     return (q[:, : orig_shape[1]].to(torch.int16) - 32).to(torch.int8).contiguous()
-MATRIX_QUANT_CLIP_SIGMAS = tuple(float(x) for x in os.environ.get("MATRIX_QUANT_CLIP_SIGMAS", "11.5").split(",") if x)
+MATRIX_QUANT_CLIP_SIGMAS = tuple(float(x) for x in os.environ.get("MATRIX_QUANT_CLIP_SIGMAS", "12.85").split(",") if x)
 def _row_clip_candidates(t32: Tensor, qmax: int, sigmas: tuple[float, ...]) -> list[Tensor]:
     row_std = t32.std(dim=1, unbiased=False).clamp_min(1e-8)
     row_absmax = t32.abs().amax(dim=1).clamp_min(1.0 / qmax)
@@ -775,8 +775,10 @@ class CausalSelfAttention(nn.Module):
         self.proj._zero_init = True
         self.q_gain = nn.Parameter(torch.full((num_heads,), qk_gain_init, dtype=torch.float32))
         self.head_gate = nn.Parameter(torch.zeros(num_heads, 12, dtype=torch.float32))
-        self.head_bias = nn.Parameter(torch.zeros(num_heads, dtype=torch.float32))
-        self.attn_gate = nn.Parameter(torch.randn(num_heads, dtype=torch.float32) * 0.005)
+        # Keep experimental attention gates effectively open at init; combined with a zero-init
+        # output projection, a zero gate would otherwise freeze the whole attention branch.
+        self.head_bias = nn.Parameter(torch.full((num_heads,), 3.0, dtype=torch.float32))
+        self.attn_gate = nn.Parameter(torch.full((num_heads,), 3.0, dtype=torch.float32))
         self.rotary = Rotary(self.head_dim, base=rope_base)
     def _apply_lora(self, base: Tensor, x: Tensor, A: Tensor, B: Tensor, scale: float) -> Tensor:
         return base + ((x @ A) @ B) * scale
@@ -1425,7 +1427,7 @@ def main() -> None:
     train_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
     ema_params: dict[str, Tensor] | None = None
     if args.ema_decay > 0:
-        ema_params = {n: p.detach().clone() for n, p in base_model.named_parameters()}
+        ema_params = {n: p.detach().float().clone() for n, p in base_model.named_parameters()}
 
     def zero_grad_all() -> None:
         for opt in optimizers:
@@ -1561,7 +1563,7 @@ def main() -> None:
         if ema_params is not None:
             with torch.no_grad():
                 for n, p in base_model.named_parameters():
-                    ema_params[n].mul_(args.ema_decay).add_(p.detach(), alpha=1.0 - args.ema_decay)
+                    ema_params[n].mul_(args.ema_decay).add_(p.detach().float(), alpha=1.0 - args.ema_decay)
 
         step += 1
         approx_training_time_ms = training_time_ms + 1000.0 * (time.perf_counter() - t0)
